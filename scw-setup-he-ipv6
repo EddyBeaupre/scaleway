@@ -1,0 +1,70 @@
+#!/bin/bash
+
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+tun_name="he-ipv6"
+tun_ipv4=""
+src_intf="eth0"
+src_ipv6=""
+
+function usage() {
+  echo "usage: $(basename $0) -t <tun_ipv4> -6 <src_ipv6> [-i <src_intf>] [-4 <src_ipv4>] [-n <tun_name>]"
+  echo ""
+  echo "  -t <tun_ipv4>    Tunnel server IPv4 Address"
+  echo "  -6 <src_ipv6>    Tunnel client IPv6 Address"
+  echo "  -i <src_intf>    Tunnel client source interface"
+  echo "  -4 <src_ipv4>    Tunnel client IPv4 Address"
+  echo "  -n <tun_name>    Tunnel interface name"
+  echo ""
+  echo "Setup tunnel at https://tunnelbroker.net first."
+  exit 1
+}
+
+while getopts ":t:4:6:n:" opt; do
+  case $opt in
+    n)
+      tun_name="$OPTARG"
+      ;;
+    t)
+      tun_ipv4="$OPTARG"
+      ;;
+    i)
+      src_intf="$OPTARG"
+      ;;
+    4)
+      src_ipv4="$OPTARG"
+      ;;
+    6)
+      src_ipv6="$OPTARG"
+      ;;
+    ?)
+      usage
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      usage
+      ;;
+  esac
+done
+
+if [ "${src_ipv6}x" == "x" ] || [ "${tun_ipv4}x" == "x" ] ; then
+  usage
+fi
+
+if [ "${src_ipv4}x" == "x" ] ; then
+  src_ipv4="$(ip -f inet -o addr show ${src_intf} |cut -d\  -f 7 | cut -d/ -f 1)"
+fi
+
+echo "Tunnel interface name: ${tun_name}"
+echo "Tunnel server IPv4 Address: ${tun_ipv4}"
+echo "Tunnel client source interface: ${src_intf} (${src_ipv4})"
+echo "Tunnel client IPv6 Address: ${src_ipv6}"
+echo ""
+/sbin/modprobe ipv6
+/sbin/ip tunnel add ${tun_name} mode sit remote ${tun_ipv4} local ${src_ipv4} ttl 255
+/sbin/ip link set ${tun_name} up
+/sbin/ip addr add ${src_ipv6} dev ${tun_name}
+/sbin/ip route add ::/0 dev ${tun_name}
+/sbin/ip -f inet6 addr
+
+exit 0
