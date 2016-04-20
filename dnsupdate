@@ -1,0 +1,105 @@
+#!/bin/bash
+
+
+function log {
+  local cmd_name=$(basename ${0})
+  
+  if [ ${verbose} -ne 0 ]; then
+    echo "${cmdname}: ${@}"
+  fi
+  /usr/bin/logger -t "${cmd_name}" "${@}"
+}
+
+function dnsUpdater {
+  local cur_ip=$(getCurrentIP)
+  local new_ip=$(getInterfaceIP)
+  
+  if [[ "x${cur_ip}" == "x${new_ip}" ]]; then
+    log "No updated needed for host ${hostname}"
+  else
+    log "Updating IP address for ${hostname} (old ip : ${cur_ip}, new ip : ${new_ip}"
+    /usr/bin/nsupdate -k ${keyfile} << EOF
+server ${servername}
+zone ${zonename}
+update delete ${hostname}. A
+update add ${hostname}. 1800 A ${new_ip}
+send
+quit
+EOF
+  fi
+}
+
+function getInterfaceIP {
+  echo $(/sbin/ip addr show dev ${interface} | /usr/bin/awk '/inet/ && /scope global/{sub(/\/.*$/,"",$2); print $2}')
+}
+
+function getCurrentIP {
+  echo $(/usr/bin/dig +short @${resolver} ${hostname} A)
+}
+
+function getHost {
+  echo ${hostname%%.*}
+  
+}
+
+function getDomain {
+  echo ${hostname#*.}
+}
+
+function usage() {
+  echo "$(basename $0) [-i <interface>] [-h <hostname>] [-r <resolver>] [-k <keyfile>] [-v]"
+  echo ""
+  echo "  -i <interface>     Dynamic IP interface (Default: ${interface})"
+  echo "  -h <hostname>      Hostname to update (Default: ${hostname})"
+  echo "  -r <resolver>      Resolver to test (Default: ${resolver})"
+  echo "  -k <keyfile>       DNS Key file (Default: ${keyfile})"
+  echo "  -s <server>        DNS server address (Default: ${servername})"
+  echo "  -z <zone>          DNS zone name (Default: ${zonename})"
+  echo ""
+  exit 1
+}
+
+verbose=0
+resolver="$(dig +short beaupre.biz -t soa | awk '{print $1}' | sed 's/.$//')"
+interface="eth0"
+hostname="$(hostname -f)"
+shortname="$(getHost)"
+zonename="$(getDomain)"
+servername="${resolver}"
+keyfile="/etc/bind/keys/ddns-key"
+
+
+while getopts ":i:h:r:k:z:s:v" opt; do
+  case $opt in
+    i)
+      interface="$OPTARG"
+      ;;
+    h)
+      hostname="$OPTARG"
+      ;;
+    r)
+      resolver="$OPTARG"
+      ;;
+    k)
+      keyfile="$OPTARG"
+      ;;
+    z)
+      zonename="$OPTARG"
+      ;;
+    s)
+      servername="$OPTARG"
+      ;;
+    v)
+      verbose=1
+      ;;
+    ?)
+      usage
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      usage
+      ;;
+  esac
+done
+
+dnsUpdater
